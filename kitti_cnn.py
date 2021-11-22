@@ -36,6 +36,21 @@ from tensorflow.keras.layers import Conv2D, MaxPool2D, Dense, Flatten, Dropout
 # Image name format: "000000.png"
 # Label name format: "000000.txt"
 
+# https://stackoverflow.com/questions/7422204/intensity-normalization-of-image-using-pythonpil-speed-issues
+def normalize(arr):
+    """
+    Linear normalization
+    http://en.wikipedia.org/wiki/Normalization_%28image_processing%29
+    """
+    arr = arr.astype('float')
+    # Do not touch the alpha channel
+    for i in range(3):
+        minval = arr[...,i].min()
+        maxval = arr[...,i].max()
+        if minval != maxval:
+            arr[...,i] -= minval
+            arr[...,i] *= (255.0/(maxval-minval))
+    return arr
 
 ### Defining variables and loading training data #########################################################################
 # print(tf.test.gpu_device_name())  # For testing GPU accessibility on linux
@@ -70,7 +85,7 @@ for data in labels:
 
         for line in lines:
             inst = line.split()
-            if inst[0] != "DontCare" and inst[0] != "Misc" and int(inst[2]) < 2:
+            if inst[0] != "DontCare" and inst[0] != "Misc" and int(inst[2]) < 1:
                 # [dataframe, class, top, left, bottom right] for each index
                 labelData.append([(str(data).rsplit('.',1)[0]), inst[0], round(float(inst[4])), round(float(inst[5])), round(float(inst[6])), round(float(inst[7]))])
     
@@ -95,6 +110,10 @@ for i in range(len(labelData)):
 
         img_res = np.array(img_res)                                 # Convert to np array and save
         img_mirror = np.array(img_mirror)
+
+        img_res = normalize(img_res)
+        img_mirror = normalize(img_mirror)
+
         X1.append(img_res)
         X2.append(img_mirror)
         
@@ -134,15 +153,15 @@ y_test = to_categorical(y_test, 7)
 print(len(y_train))
 print(len(y_test))
 
-opt = keras.optimizers.Adam(lr = 0.001)  # The learning rate details for the network
+opt = keras.optimizers.Adam(lr = 0.0005)  # The learning rate details for the network
 
 model = Sequential()
-model.add(Conv2D(filters=32, kernel_size=(5,5), activation='relu', input_shape=(30,30,1)))
-model.add(Conv2D(filters=32, kernel_size=(5,5), activation='relu'))
+model.add(Conv2D(filters=64, kernel_size=(5,5), activation='relu', input_shape=(30,30,1)))
+model.add(Conv2D(filters=64, kernel_size=(5,5), activation='relu'))
 model.add(MaxPool2D(pool_size=(2, 2)))
 model.add(Dropout(rate=0.25))
-model.add(Conv2D(filters=64, kernel_size=(3, 3), activation='relu'))
-model.add(Conv2D(filters=64, kernel_size=(3, 3), activation='relu'))
+model.add(Conv2D(filters=128, kernel_size=(3, 3), activation='relu'))
+model.add(Conv2D(filters=128, kernel_size=(3, 3), activation='relu'))
 model.add(MaxPool2D(pool_size=(2, 2)))
 model.add(Dropout(rate=0.25))
 model.add(Flatten())
@@ -151,7 +170,7 @@ model.add(Dropout(rate=0.5))
 model.add(Dense(7, activation='softmax'))
 model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
 
-epochs = 50   # How many iterations the model will run
+epochs = 100   # How many iterations the model will run
 history = model.fit(x_train, y_train, batch_size=64, epochs=epochs, validation_data=(x_test, y_test)) # Saves metadata for later
 model.save('kitti_cnn.h5')
 
