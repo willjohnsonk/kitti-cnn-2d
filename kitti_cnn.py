@@ -37,16 +37,12 @@ from tensorflow.keras.layers import Conv2D, MaxPool2D, Dense, Flatten, Dropout
 # Label name format: "000000.txt"
 
 
-### TO DO #####################################
-# >The class labels need to be int values (0 - 6). Currently they are strings.
-# >The final Y array needs to only be int class values with an associated image
-#   -May split current Y array into two. One for class, one with class and meta data
-# >Image resizing may not be the best rn. Test cases and see options for high aspect ratios
-
-
 ### Defining variables and loading training data #########################################################################
 # print(tf.test.gpu_device_name())  # For testing GPU accessibility on linux
 
+# Xs: arrays for storing img data Y: array for storing int class labels (0-6)
+X1 = []
+X2 = []
 X = []
 Y = []
 labelData = []
@@ -74,7 +70,7 @@ for data in labels:
 
         for line in lines:
             inst = line.split()
-            if inst[0] != "DontCare" and inst[0] != "Misc":
+            if inst[0] != "DontCare" and inst[0] != "Misc" and int(inst[2]) < 2:
                 # [dataframe, class, top, left, bottom right] for each index
                 labelData.append([(str(data).rsplit('.',1)[0]), inst[0], round(float(inst[4])), round(float(inst[5])), round(float(inst[6])), round(float(inst[7]))])
     
@@ -84,27 +80,37 @@ for data in labels:
 
 # Crossreferences the image for each label and appends to X, augments for model
 for i in range(len(labelData)):
-    try: 
+    try:
+        # Image filepath setup
         inst = labelData[i]
         img_file = inst[0] + '.png'
         directory = os.path.join(train_img_path,img_file)
 
-        img = Image.open(directory)
-        img_res = img.crop((inst[2], inst[3], inst[4], inst[5]))
-        shape = (30, 30)
+        # Image saving/augmentation
+        img = Image.open(directory).convert('L')                    # Coverts to greyscale. Remove ".convert('L') for RGB"
+        img_res = img.crop((inst[2], inst[3], inst[4], inst[5]))    # Crops KITTI img to bounding box
+        shape = (30, 30)                                            # Resizes img to 30 pixel square
         img_res = img_res.resize(shape)
-        img_res = np.array(img_res)
-        X.append(img_res)
+        img_mirror = ImageOps.mirror(img_res)                       # Creates an duplicate image that's mirrored
+
+        img_res = np.array(img_res)                                 # Convert to np array and save
+        img_mirror = np.array(img_mirror)
+        X1.append(img_res)
+        X2.append(img_mirror)
+        
 
     except:
         print("Error loading image with data ", inst, i)
 
 
-# Saves only associated labels to Y
+# Saves associated labels to Y as ints (0-6)
 label_dict = {'Car':0,'Van':1,'Truck':2,'Pedestrian':3,'Person_sitting':4,'Cyclist':5,'Tram':6}
 for label in labelData:
     Y.append(label_dict[label[1]])
 
+# Combines the mirrored and nonmirrored datasets
+X = X1 + X2
+Y = Y + Y
 
 X = np.array(X)
 Y = np.array(Y)
@@ -112,14 +118,15 @@ Y = np.array(Y)
 print(np.shape(X))
 print(np.shape(Y))
 
-# print(labelData[27])
-# print(Y[27])
-# img_res.show()
-
 
 ### Creating and training the model ###################################################################################
 # Sets aside 20% of the original data to use for testing, all else is used to train. Randomizes based on seed (42 here).
 x_train, x_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+# Greyscale conversion removes dimension, add back filler to fit model
+# If using RGB comment these two lines out and change input shape to (x, x, 3)
+x_train = tf.expand_dims(x_train, axis=-1)
+x_test = tf.expand_dims(x_test, axis=-1)
 
 y_train = to_categorical(y_train, 7)
 y_test = to_categorical(y_test, 7)
@@ -127,10 +134,10 @@ y_test = to_categorical(y_test, 7)
 print(len(y_train))
 print(len(y_test))
 
-opt = keras.optimizers.Adam(lr = 0.0008)  # The learning rate details for the network
+opt = keras.optimizers.Adam(lr = 0.001)  # The learning rate details for the network
 
 model = Sequential()
-model.add(Conv2D(filters=32, kernel_size=(5,5), activation='relu', input_shape=(30,30,3)))  # input shape MUST be size of all input imgs
+model.add(Conv2D(filters=32, kernel_size=(5,5), activation='relu', input_shape=(30,30,1)))
 model.add(Conv2D(filters=32, kernel_size=(5,5), activation='relu'))
 model.add(MaxPool2D(pool_size=(2, 2)))
 model.add(Dropout(rate=0.25))
@@ -144,7 +151,7 @@ model.add(Dropout(rate=0.5))
 model.add(Dense(7, activation='softmax'))
 model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
 
-epochs = 3   # How many iterations the model will run
+epochs = 50   # How many iterations the model will run
 history = model.fit(x_train, y_train, batch_size=64, epochs=epochs, validation_data=(x_test, y_test)) # Saves metadata for later
 model.save('kitti_cnn.h5')
 
